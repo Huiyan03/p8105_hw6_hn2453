@@ -10,6 +10,7 @@ library(modelr)
 library(tidyr)
 library(purrr)
 library(ggplot2)
+library(tidyverse)
 set.seed(1)
 ```
 
@@ -86,4 +87,69 @@ CI_r_square
 CI_product = quantile(boot_product$log_product,c(0.025,0.975),na.rm=TRUE)
 CI_product
 ```
+
+## problem 2
+
+import data, clean and arrange these data.
+```{r}
+homicide = read_csv("data/homicide-data.csv") |>
+  janitor::clean_names()|>
+  mutate(city_state = paste(city, state, sep = ", "))|>
+  mutate(resolved = as.numeric(disposition=="Closed by arrest"))|>
+  filter(!city %in% c("Dallas","Phoenix","Kansas City","Tulsa"))|>
+  filter(victim_race %in% c("White","Black"))|>
+  mutate(victim_age = as.numeric(victim_age))
+```
+analyze the condition in Baltimore
+```{r}
+baltimore = homicide |>
+  filter(city_state=="Baltimore, MD")
+  
+  
+baltimore_ml = glm(resolved ~ victim_age+victim_sex+victim_race, family = binomial(), data = baltimore)
+
+```
+
+fit a logistic regression and obtain the estimate and confidence interval of odds ratio
+```{r}
+baltimore_ml |>
+  broom:: tidy(conf.int = TRUE)|>
+  filter(term=="victim_sexMale")|>
+  mutate(OR=exp(estimate),
+         exp_conf_low = exp(conf.low),
+         exp_conf_high = exp(conf.high))
+```
+run glm for each of the cities like baltimore
+```{r}
+citys_ml = homicide|>
+  group_by(city_state)|>
+  nest()|>
+  mutate(
+    models = map(data,\(df) glm(resolved ~ victim_age + victim_sex + victim_race, family = binomial,data = df)),
+    results = map(models, broom::tidy, conf.int = TRUE)
+  )|>
+  select(-data,-models)|>
+  unnest(results)|>
+  filter(term == "victim_sexMale")|>
+  mutate(
+    OR=exp(estimate),
+    exp_conf_low = exp(conf.low),
+    exp_conf_high = exp(conf.high)
+  )
+
+citys_ml
+```
+create plot for citys_ml
+```{r fig.width = 7, fig.height = 8}
+ggplot(citys_ml, aes(x=reorder(city_state, OR), y = OR, ymin = exp_conf_low,ymax=exp_conf_high))+
+  geom_pointrange()+
+  coord_flip()+
+  labs(title = "Adjusted Odds Ratio about Solving Homicides Based on Sex",
+       x="City",
+       y = "Odds Ratio(CI)")+
+  theme_minimal()
+  
+```
+From the plot, we can get that only about 6 cities' odds ratio are larger than 1, and mostly cities' odds ratio are less than 1. Thus, in most cities, male victims are associated with lower odds of the homicide being solved compared to female victims. 
+
 
